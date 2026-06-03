@@ -5,6 +5,7 @@ import shutil
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
+from rembg import remove
 
 # 配置
 VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260526_234138.mp4")
@@ -68,8 +69,9 @@ def filter_blurry_frames(frame_paths, percentile=25):
     scores = [sharpness(p) for p in frame_paths]
     threshold = np.percentile(scores, percentile)
     sharp_frames = [p for p, s in zip(frame_paths, scores) if s >= threshold]
+    removed = len(frame_paths) - len(sharp_frames)
     print(f"Sharpness threshold (p{percentile}): {threshold:.1f}")
-    print(f"Sharpness filter: {len(frame_paths)} → {len(sharp_frames)} frames")
+    print(f"Sharpness filter: {len(frame_paths)} → {len(sharp_frames)} frames ({removed} removed)")
     return sharp_frames
 
 
@@ -115,6 +117,10 @@ def find_stable_frames(frame_paths, min_distance=10):
 
     # YOLO 去重
     yolo = YOLO(YOLO_MODEL_PATH)
+    # 过滤掉色差高于均值的低谷
+    mean_diff = np.mean(smoothed_diffs)
+    valleys = [v for v in valleys if smoothed_diffs[v] < mean_diff]
+    print(f"After mean filter ({mean_diff:.4f}): {len(valleys)} stable moments remaining")
     candidates = [frame_paths[v] for v in valleys]
 
     def get_crop_and_class(path):
@@ -169,8 +175,11 @@ representatives = find_stable_frames(frame_paths, min_distance=MIN_PEAK_DISTANCE
 
 print(f"\nResult: {len(representatives)} unique items")
 for i, rep in enumerate(representatives):
-    dst = os.path.join(OUTPUT_DIR, f"item_{i+1:02d}_{os.path.basename(rep)}")
-    shutil.copy(rep, dst)
-
-#shutil.rmtree(frames_dir)
+    print(f"  Removing background: {os.path.basename(rep)}...")
+    with open(rep, "rb") as f:
+        result = remove(f.read())
+    dst = os.path.join(OUTPUT_DIR, f"item_{i+1:02d}_{os.path.basename(rep).replace('.jpg', '.png')}")
+    with open(dst, "wb") as f:
+        f.write(result)
+shutil.rmtree(frames_dir)
 print("\nDone! Check ~/stylo-backend/visual_output/")
