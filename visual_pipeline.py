@@ -4,12 +4,13 @@ import numpy as np
 import shutil
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
+from ultralytics import YOLO
 
 # 配置
-VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260526_234138.mp4")
+VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260602_203808.mp4")
 OUTPUT_DIR = os.path.expanduser("~/stylo-backend/visual_output")
 FPS_SAMPLE = 5
-MIN_PEAK_DISTANCE = 10  # 两个低谷之间至少间隔几帧
+MIN_PEAK_DISTANCE = 5  # 两个低谷之间至少间隔几帧
 
 # 清空输出目录
 if os.path.exists(OUTPUT_DIR):
@@ -114,8 +115,42 @@ def find_stable_frames(frame_paths, min_distance=10):
     plt.close()
     print("Diff curve saved.")
 
-    return [frame_paths[v] for v in valleys]
-
+    # 用 fashion YOLO + 颜色直方图去重
+    yolo = YOLO(os.path.expanduser("~/stylo-backend/deepfashion2_yolov8s-seg.pt"))
+    
+    candidates = [frame_paths[v] for v in valleys]
+    
+    def get_top_class(path):
+        results = yolo(path, verbose=False)
+        boxes = results[0].boxes
+        if len(boxes) == 0:
+            return None
+        # 返回置信度最高的类别
+        best = max(boxes, key=lambda b: float(b.conf[0]))
+        return yolo.names[int(best.cls[0])]
+    
+    filtered = [candidates[0]]
+    for curr in candidates[1:]:
+        last = filtered[-1]
+        
+        # 比较类别
+        last_cls = get_top_class(last)
+        curr_cls = get_top_class(curr)
+        
+        # 比较颜色
+        last_hist = color_histogram(last)
+        curr_hist = color_histogram(curr)
+        color_diff = histogram_diff(last_hist, curr_hist)
+    
+        print(f"  比较：{os.path.basename(last)} vs {os.path.basename(curr)} | cls: {last_cls} vs {curr_cls} | color_diff: {color_diff:.4f}")
+        
+        # 类别相同 且 颜色相似 → 合并
+        if last_cls == curr_cls and color_diff < 0.08:
+            print(f"  合并：{os.path.basename(curr)} 与上一件相同 (cls={curr_cls}, color_diff={color_diff:.4f})")
+        else:
+            filtered.append(curr)
+    
+    return filtered
 
 # 主流程
 frames_dir = os.path.join(OUTPUT_DIR, "frames")
