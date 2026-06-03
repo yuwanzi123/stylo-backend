@@ -7,10 +7,11 @@ import matplotlib.pyplot as plt
 from ultralytics import YOLO
 
 # 配置
-VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260602_203808.mp4")
+VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260526_234138.mp4")
 OUTPUT_DIR = os.path.expanduser("~/stylo-backend/visual_output")
 FPS_SAMPLE = 5
-MIN_PEAK_DISTANCE = 5  # 两个低谷之间至少间隔几帧
+MIN_PEAK_DISTANCE = 5
+YOLO_MODEL_PATH = os.path.expanduser("~/stylo-backend/deepfashion2_yolov8s-seg.pt")
 
 # 清空输出目录
 if os.path.exists(OUTPUT_DIR):
@@ -62,6 +63,7 @@ def sharpness(image_path):
     img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
     return cv2.Laplacian(img, cv2.CV_64F).var()
 
+
 def filter_blurry_frames(frame_paths, percentile=25):
     scores = [sharpness(p) for p in frame_paths]
     threshold = np.percentile(scores, percentile)
@@ -70,17 +72,16 @@ def filter_blurry_frames(frame_paths, percentile=25):
     print(f"Sharpness filter: {len(frame_paths)} → {len(sharp_frames)} frames")
     return sharp_frames
 
+
 def find_stable_frames(frame_paths, min_distance=10):
     print("Computing color histograms...")
     histograms = [color_histogram(p) for p in frame_paths]
 
-    # 计算相邻帧颜色差异
     diffs = []
     for i in range(len(histograms) - 1):
         diff = histogram_diff(histograms[i], histograms[i + 1])
         diffs.append(diff)
 
-    # 平滑（3帧滑动平均）
     smooth_window = 5
     smoothed_diffs = []
     for i in range(len(diffs)):
@@ -88,13 +89,11 @@ def find_stable_frames(frame_paths, min_distance=10):
         end = min(len(diffs), i + smooth_window // 2 + 1)
         smoothed_diffs.append(np.mean(diffs[start:end]))
 
-
     print(f"\n颜色差异统计：")
     print(f"  最小：{min(smoothed_diffs):.4f}")
     print(f"  最大：{max(smoothed_diffs):.4f}")
     print(f"  平均：{np.mean(smoothed_diffs):.4f}")
 
-    # 找局部最低点（反转曲线找峰值）
     inverted = [-d for d in smoothed_diffs]
     valleys, _ = find_peaks(inverted, distance=min_distance)
 
@@ -102,7 +101,6 @@ def find_stable_frames(frame_paths, min_distance=10):
     for v in valleys:
         print(f"  帧{v} ({os.path.basename(frame_paths[v])}) 差异={smoothed_diffs[v]:.4f}")
 
-    # 画曲线
     plt.figure(figsize=(16, 4))
     plt.plot(smoothed_diffs, label='smoothed diff')
     plt.scatter(valleys, [smoothed_diffs[v] for v in valleys],
@@ -115,42 +113,46 @@ def find_stable_frames(frame_paths, min_distance=10):
     plt.close()
     print("Diff curve saved.")
 
-    # 用 fashion YOLO + 颜色直方图去重
-    yolo = YOLO(os.path.expanduser("~/stylo-backend/deepfashion2_yolov8s-seg.pt"))
-    
+    # YOLO 去重
+    yolo = YOLO(YOLO_MODEL_PATH)
     candidates = [frame_paths[v] for v in valleys]
-    
-    def get_top_class(path):
+
+    def get_crop_and_class(path):
         results = yolo(path, verbose=False)
         boxes = results[0].boxes
         if len(boxes) == 0:
-            return None
-        # 返回置信度最高的类别
+            return None, None
         best = max(boxes, key=lambda b: float(b.conf[0]))
-        return yolo.names[int(best.cls[0])]
-    
+        cls = yolo.names[int(best.cls[0])]
+        x1, y1, x2, y2 = map(int, best.xyxy[0])
+        img = cv2.imread(path)
+        crop = img[y1:y2, x1:x2]
+        crop_path = path.replace(".jpg", "_crop.jpg")
+        cv2.imwrite(crop_path, crop)
+        return cls, crop_path
+
     filtered = [candidates[0]]
     for curr in candidates[1:]:
         last = filtered[-1]
-        
-        # 比较类别
-        last_cls = get_top_class(last)
-        curr_cls = get_top_class(curr)
-        
-        # 比较颜色
-        last_hist = color_histogram(last)
-        curr_hist = color_histogram(curr)
-        color_diff = histogram_diff(last_hist, curr_hist)
-    
+        last_cls, last_crop = get_crop_and_class(last)
+        curr_cls, curr_crop = get_crop_and_class(curr)
+
+        if last_crop and curr_crop:
+            last_hist = color_histogram(last_crop)
+            curr_hist = color_histogram(curr_crop)
+            color_diff = histogram_diff(last_hist, curr_hist)
+        else:
+            color_diff = 1.0
+
         print(f"  比较：{os.path.basename(last)} vs {os.path.basename(curr)} | cls: {last_cls} vs {curr_cls} | color_diff: {color_diff:.4f}")
-        
-        # 类别相同 且 颜色相似 → 合并
-        if last_cls == curr_cls and color_diff < 0.08:
-            print(f"  合并：{os.path.basename(curr)} 与上一件相同 (cls={curr_cls}, color_diff={color_diff:.4f})")
+
+        if color_diff < 0.10:
+            print(f"  合并：{os.path.basename(curr)}")
         else:
             filtered.append(curr)
-    
+
     return filtered
+
 
 # 主流程
 frames_dir = os.path.join(OUTPUT_DIR, "frames")
@@ -160,7 +162,6 @@ print("Extracting frames...")
 frame_paths = extract_frames(VIDEO_PATH, frames_dir, FPS_SAMPLE)
 
 print("Filtering blurry frames...")
-
 frame_paths = filter_blurry_frames(frame_paths, percentile=25)
 
 print("Finding stable frames...")
@@ -171,5 +172,5 @@ for i, rep in enumerate(representatives):
     dst = os.path.join(OUTPUT_DIR, f"item_{i+1:02d}_{os.path.basename(rep)}")
     shutil.copy(rep, dst)
 
-shutil.rmtree(frames_dir)
+#shutil.rmtree(frames_dir)
 print("\nDone! Check ~/stylo-backend/visual_output/")
