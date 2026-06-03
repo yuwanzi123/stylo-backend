@@ -1,0 +1,7 @@
+uploads/
+frames/
+test_output/
+visual_output/
+__pycache__/
+*.pyc
+*.pt
