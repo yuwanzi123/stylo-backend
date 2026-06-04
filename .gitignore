@@ -5,3 +5,4 @@ visual_output/
 __pycache__/
 *.pyc
 *.pt
+rembg_output/
