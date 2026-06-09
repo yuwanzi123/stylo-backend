@@ -6,6 +6,10 @@ from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 from rembg import remove
+import requests
+import base64
+import io
+from PIL import Image
 
 # 配置
 VIDEO_PATH = os.path.expanduser("~/stylo-backend/uploads/20260526_234138.mp4")
@@ -13,6 +17,7 @@ OUTPUT_DIR = os.path.expanduser("~/stylo-backend/visual_output")
 FPS_SAMPLE = 5
 MIN_PEAK_DISTANCE = 5
 YOLO_MODEL_PATH = os.path.expanduser("~/stylo-backend/deepfashion2_yolov8s-seg.pt")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 # 清空输出目录
 if os.path.exists(OUTPUT_DIR):
@@ -159,6 +164,59 @@ def find_stable_frames(frame_paths, min_distance=10):
 
     return filtered
 
+def flatten_with_gpt(image_path, output_path):
+    # 去背景
+    with open(image_path, "rb") as f:
+        rembg_result = remove(f.read())
+    
+    # 白色背景
+    img_rgba = Image.open(io.BytesIO(rembg_result)).convert("RGBA")
+    white_bg = Image.new("RGBA", img_rgba.size, (255, 255, 255, 255))
+    white_bg.paste(img_rgba, mask=img_rgba.split()[3])
+    img_rgb = white_bg.convert("RGB")
+    buffer = io.BytesIO()
+    img_rgb.save(buffer, format="JPEG")
+    img_b64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # GPT-4o 描述
+    payload = {
+        "model": "gpt-4o",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}},
+                {"type": "text", "text": "Describe this clothing item in extreme detail for exact product photo recreation. Include: exact colors, every pattern element and its position, pattern variations, fabric texture, garment type, neckline, sleeve style, cuffs, hem. Focus only on the main clothing item, ignore hangers, tags, or background."}
+            ]
+        }],
+        "max_tokens": 300
+    }
+    
+    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+    print(response.json())
+    description = response.json()["choices"][0]["message"]["content"]
+    print(f"  Description: {description[:100]}...")
+    
+    # gpt-image-1 生成平铺图
+    dalle_prompt = f"A flat lay product photo of: {description}. White background, no wrinkles, perfectly flat, studio lighting, e-commerce style."
+    dalle_payload = {
+        "model": "gpt-image-1",
+        "prompt": dalle_prompt,
+        "n": 1,
+        "size": "1024x1024",
+        "quality": "medium"
+    }
+    
+    dalle_response = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=dalle_payload)
+    result_data = dalle_response.json()["data"][0]["b64_json"]
+    img_bytes = base64.b64decode(result_data)
+    
+    with open(output_path, "wb") as f:
+        f.write(img_bytes)
 
 # 主流程
 frames_dir = os.path.join(OUTPUT_DIR, "frames")
@@ -175,11 +233,9 @@ representatives = find_stable_frames(frame_paths, min_distance=MIN_PEAK_DISTANCE
 
 print(f"\nResult: {len(representatives)} unique items")
 for i, rep in enumerate(representatives):
-    print(f"  Removing background: {os.path.basename(rep)}...")
-    with open(rep, "rb") as f:
-        result = remove(f.read())
+    print(f"  Flattening {os.path.basename(rep)}...")
     dst = os.path.join(OUTPUT_DIR, f"item_{i+1:02d}_{os.path.basename(rep).replace('.jpg', '.png')}")
-    with open(dst, "wb") as f:
-        f.write(result)
+    flatten_with_gpt(rep, dst)
+
 shutil.rmtree(frames_dir)
 print("\nDone! Check ~/stylo-backend/visual_output/")

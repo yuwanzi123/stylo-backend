@@ -6,3 +6,9 @@ __pycache__/
 *.pyc
 *.pt
 rembg_output/
+controlnet_output/
+flatten_output/
+gpt4o_output/
+sd_output/
+May
+which
