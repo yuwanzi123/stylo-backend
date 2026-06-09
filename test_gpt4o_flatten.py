@@ -4,7 +4,7 @@ import requests
 from PIL import Image
 import io
 
-API_KEY = "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"
+API_KEY = "OPENAI_API_KEY"
 
 INPUT_DIR = os.path.expanduser("~/stylo-backend/visual_output")
 OUTPUT_DIR = os.path.expanduser("~/stylo-backend/gpt4o_output")
