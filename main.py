@@ -10,8 +10,13 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from visual_pipeline import run_pipeline, run_pipeline_image
+from models import SessionLocal, ClosetItem, init_db
 
 app = FastAPI()
+
+@app.on_event("startup")
+def startup():
+    init_db()
 
 
 class TaskStatus(str, Enum):
@@ -24,6 +29,7 @@ class TaskResult(BaseModel):
     task_id: str
     status: TaskStatus
     media_type: Optional[str] = None   # "video" or "image"
+    current_step: Optional[str] = None  # "processing_media" | "detecting_items" | "generating_images"
     item_count: Optional[int] = None
     images: Optional[list] = None
     error: Optional[str] = None
@@ -43,11 +49,20 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic"}
 
 
 def process_media_task(task_id: str, media_path: str, media_type: str, output_dir: str):
+    def step_callback(step: str):
+        tasks[task_id] = TaskResult(
+            task_id=task_id,
+            status=TaskStatus.processing,
+            media_type=media_type,
+            current_step=step,
+        )
+
+    step_callback("processing_media")
     try:
         if media_type == "video":
-            output_paths = run_pipeline(media_path, output_dir=output_dir)
+            output_paths = run_pipeline(media_path, output_dir=output_dir, on_step_change=step_callback)
         else:
-            output_paths = run_pipeline_image(media_path, output_dir=output_dir)
+            output_paths = run_pipeline_image(media_path, output_dir=output_dir, on_step_change=step_callback)
 
         images = []
         for path in output_paths:
@@ -140,6 +155,86 @@ async def get_task(task_id: str):
     if task is None:
         return JSONResponse({"error": "Task not found"}, status_code=404)
     return JSONResponse(task.model_dump())
+
+
+class ClosetItemIn(BaseModel):
+    filename: str
+    image_url: str
+    description: Optional[str] = None
+    source_task_id: Optional[str] = None
+
+class ClosetItemsRequest(BaseModel):
+    items: list[ClosetItemIn]
+
+
+@app.post("/closet/items")
+def create_closet_items(body: ClosetItemsRequest):
+    db = SessionLocal()
+    try:
+        created = []
+        for item in body.items:
+            row = ClosetItem(
+                filename=item.filename,
+                image_url=item.image_url,
+                description=item.description,
+                source_task_id=item.source_task_id,
+            )
+            db.add(row)
+            db.flush()  # 让数据库分配 id，但还没 commit
+            created.append({
+                "id": row.id,
+                "filename": row.filename,
+                "image_url": row.image_url,
+                "description": row.description,
+                "source_task_id": row.source_task_id,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            })
+        db.commit()
+        return JSONResponse({"items": created}, status_code=201)
+    except Exception as e:
+        db.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        db.close()
+
+
+@app.get("/closet/items")
+def list_closet_items():
+    db = SessionLocal()
+    try:
+        rows = db.query(ClosetItem).order_by(ClosetItem.created_at.desc()).all()
+        return JSONResponse({
+            "items": [
+                {
+                    "id": r.id,
+                    "filename": r.filename,
+                    "image_url": r.image_url,
+                    "description": r.description,
+                    "source_task_id": r.source_task_id,
+                    "created_at": r.created_at.isoformat() if r.created_at else None,
+                }
+                for r in rows
+            ]
+        })
+    finally:
+        db.close()
+
+
+@app.delete("/closet/items/{item_id}")
+def delete_closet_item(item_id: int):
+    db = SessionLocal()
+    try:
+        row = db.query(ClosetItem).filter(ClosetItem.id == item_id).first()
+        if row is None:
+            return JSONResponse({"error": "Item not found"}, status_code=404)
+        db.delete(row)
+        db.commit()
+        return JSONResponse({"deleted_id": item_id})
+    except Exception as e:
+        db.rollback()
+        return JSONResponse({"error": str(e)}, status_code=500)
+    finally:
+        db.close()
 
 
 @app.get("/")

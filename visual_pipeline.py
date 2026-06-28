@@ -241,7 +241,7 @@ def flatten_with_gpt(image_path, output_path):
         f.write(img_bytes)
 
 
-def run_pipeline(video_path: str, output_dir: str = None) -> list[str]:
+def run_pipeline(video_path: str, output_dir: str = None, on_step_change=None) -> list[str]:
     if output_dir is None:
         output_dir = os.path.expanduser("~/stylo-backend/visual_output")
 
@@ -266,6 +266,8 @@ def run_pipeline(video_path: str, output_dir: str = None) -> list[str]:
     timings["filter_blurry"] = time.time() - t
 
     print("Finding stable frames...")
+    if on_step_change:
+        on_step_change("detecting_items")
     t = time.time()
     representatives = find_stable_frames(frame_paths, output_dir, min_distance=MIN_PEAK_DISTANCE)
     timings["find_stable_frames"] = time.time() - t
@@ -285,6 +287,8 @@ def run_pipeline(video_path: str, output_dir: str = None) -> list[str]:
     timings["crop_and_rembg"] = time.time() - t
 
     print("\nFlattening with GPT...")
+    if on_step_change:
+        on_step_change("generating_images")
     t = time.time()
     for i, rep in enumerate(representatives):
         _, crop_path, _ = get_crop_and_class(rep, yolo)
@@ -306,7 +310,7 @@ def run_pipeline(video_path: str, output_dir: str = None) -> list[str]:
     return output_paths
 
 
-def run_pipeline_image(image_path: str, output_dir: str = None) -> list[str]:
+def run_pipeline_image(image_path: str, output_dir: str = None, on_step_change=None) -> list[str]:
     if output_dir is None:
         output_dir = os.path.expanduser("~/stylo-backend/visual_output")
 
@@ -314,6 +318,8 @@ def run_pipeline_image(image_path: str, output_dir: str = None) -> list[str]:
         shutil.rmtree(output_dir)
     os.makedirs(output_dir)
 
+    if on_step_change:
+        on_step_change("detecting_items")
     yolo = YOLO(YOLO_MODEL_PATH)
     _, crop_path, _ = get_crop_and_class(image_path, yolo)
     src = crop_path if crop_path and os.path.exists(crop_path) else image_path
@@ -323,6 +329,8 @@ def run_pipeline_image(image_path: str, output_dir: str = None) -> list[str]:
         removed = remove(f.read())
     Image.open(io.BytesIO(removed)).save(dst)
 
+    if on_step_change:
+        on_step_change("generating_images")
     flat_dst = os.path.join(output_dir, "item_01_flat.png")
     flatten_with_gpt(src, flat_dst)
     print(f"  Flattened: {os.path.basename(flat_dst)}")
