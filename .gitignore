@@ -10,5 +10,7 @@ controlnet_output/
 flatten_output/
 gpt4o_output/
 sd_output/
+outfit_output/
+stylo.db
 May
 which
