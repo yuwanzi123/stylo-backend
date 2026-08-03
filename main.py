@@ -4,8 +4,9 @@ import base64
 import json
 import uuid
 import threading
+import numpy as np
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks
 from fastapi.responses import JSONResponse
@@ -14,6 +15,7 @@ from pydantic import BaseModel
 from visual_pipeline import run_pipeline, run_pipeline_image
 from models import SessionLocal, ClosetItem, ChatMessage, Outfit, init_db
 from app.services.item_classifier import classify_item
+from app.services.llm_client import get_embedding
 from app.services.outfit_recommender import recommend
 
 app = FastAPI()
@@ -218,6 +220,12 @@ def create_closet_items(body: ClosetItemsRequest):
             except Exception as e:
                 print(f"classify_item failed for {item.image_url}: {e}")
 
+            if row.description:
+                try:
+                    row.embedding = json.dumps(get_embedding(row.description))
+                except Exception as e:
+                    print(f"get_embedding failed for {item.image_url}: {e}")
+
             db.add(row)
             db.flush()  # 让数据库分配 id，但还没 commit
             created.append({
@@ -239,26 +247,57 @@ def create_closet_items(body: ClosetItemsRequest):
         db.close()
 
 
+def _serialize_closet_item(r: ClosetItem) -> dict:
+    return {
+        "id": r.id,
+        "filename": r.filename,
+        "image_url": r.image_url,
+        "description": r.description,
+        "category": r.category,
+        "attributes": r.attributes,
+        "source_task_id": r.source_task_id,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+    }
+
+
 @app.get("/closet/items")
 def list_closet_items():
     db = SessionLocal()
     try:
         rows = db.query(ClosetItem).order_by(ClosetItem.created_at.desc()).all()
-        return JSONResponse({
-            "items": [
-                {
-                    "id": r.id,
-                    "filename": r.filename,
-                    "image_url": r.image_url,
-                    "description": r.description,
-                    "category": r.category,
-                    "attributes": r.attributes,
-                    "source_task_id": r.source_task_id,
-                    "created_at": r.created_at.isoformat() if r.created_at else None,
-                }
-                for r in rows
-            ]
-        })
+        return JSONResponse({"items": [_serialize_closet_item(r) for r in rows]})
+    finally:
+        db.close()
+
+
+# text-embedding-3-small cosine similarities for short Chinese/English item descriptions
+# cluster much lower than intuition suggests -- empirically, genuinely relevant matches on
+# this closet's data score ~0.45-0.7, never near 0.75. See stage-3 report for the numbers.
+SEARCH_SIMILARITY_THRESHOLD = 0.4
+
+
+@app.get("/closet/search")
+def search_closet_items(q: str):
+    db = SessionLocal()
+    try:
+        if not q.strip():
+            return JSONResponse({"items": []})
+
+        query_vector = np.array(get_embedding(q))
+        rows = db.query(ClosetItem).filter(ClosetItem.embedding.isnot(None)).all()
+
+        scored = []
+        for r in rows:
+            item_vector = np.array(json.loads(r.embedding))
+            similarity = float(
+                np.dot(query_vector, item_vector)
+                / (np.linalg.norm(query_vector) * np.linalg.norm(item_vector))
+            )
+            if similarity >= SEARCH_SIMILARITY_THRESHOLD:
+                scored.append((similarity, r))
+
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return JSONResponse({"items": [_serialize_closet_item(r) for _, r in scored]})
     finally:
         db.close()
 
@@ -379,15 +418,15 @@ def post_chat_message(body: ChatMessageIn):
 
 
 @app.get("/chat/history")
-def get_chat_history(user_id: str):
+def get_chat_history(user_id: str, days: Optional[int] = None):
+    # days: 只返回最近 N 天的消息；不传则返回全部历史（为以后的"最近3天/全部"选择器预留）
     db = SessionLocal()
     try:
-        rows = (
-            db.query(ChatMessage)
-            .filter(ChatMessage.user_id == user_id)
-            .order_by(ChatMessage.created_at.asc())
-            .all()
-        )
+        query = db.query(ChatMessage).filter(ChatMessage.user_id == user_id)
+        if days is not None:
+            since = datetime.utcnow() - timedelta(days=days)
+            query = query.filter(ChatMessage.created_at >= since)
+        rows = query.order_by(ChatMessage.created_at.asc()).all()
         messages = []
         for m in rows:
             entry = {

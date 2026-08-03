@@ -6,6 +6,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings"
 
 
 @retry(
@@ -30,6 +31,28 @@ def chat_completion(messages, model="gpt-4o", max_tokens=500, json_mode=False, t
     response = requests.post(CHAT_COMPLETIONS_URL, headers=headers, json=payload, timeout=60)
     response.raise_for_status()
     return response.json()["choices"][0]["message"]["content"]
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((
+        requests.exceptions.SSLError,
+        requests.exceptions.Timeout,
+        requests.exceptions.ConnectionError,
+    )),
+    reraise=True,
+)
+def get_embedding(text: str, model="text-embedding-3-small") -> list[float]:
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": model, "input": text}
+
+    response = requests.post(EMBEDDINGS_URL, headers=headers, json=payload, timeout=30)
+    response.raise_for_status()
+    return response.json()["data"][0]["embedding"]
 
 
 def image_to_data_url(image_path: str) -> str:

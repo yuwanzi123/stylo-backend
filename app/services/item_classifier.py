@@ -4,20 +4,23 @@ from app.services.llm_client import chat_completion, image_to_data_url
 
 VALID_CATEGORIES = {"top", "bottom", "outerwear", "shoes", "other"}
 
-CLASSIFY_PROMPT = """你是一个衣橱管理助手。请看这张单品服装图片，判断它的类别和特点。
+CLASSIFY_PROMPT = """You are a closet management assistant. Look at this clothing item photo and identify its category and attributes.
 
-category 必须是以下之一：
-- "top"：上衣（T恤、衬衫、卫衣、毛衣等不含外套的上身单品）
-- "bottom"：下装（裤子、裙子、短裤等）
-- "outerwear"：外套（夹克、大衣、风衣、羽绒服等）
-- "shoes"：鞋
-- "other"：以上都不是
+category must be one of:
+- "top": T-shirts, shirts, hoodies, sweaters, and other upper-body pieces that are not outerwear
+- "bottom": pants, skirts, shorts, etc.
+- "outerwear": jackets, coats, trench coats, down jackets, etc.
+- "shoes": footwear
+- "other": none of the above
 
-只返回 JSON，格式：
+IMPORTANT: "description" and every value inside "attributes" must be written in English, regardless of
+what language this instruction is in. Do not output Chinese or any other language.
+
+Return JSON only, in this exact format:
 {
   "category": "top",
-  "attributes": {"color": "颜色", "style": "风格，如休闲/正式/运动", "season": "适合季节", "pattern": "图案，如纯色/条纹/格纹"},
-  "description": "一句话描述这件单品，包含颜色、版型、材质等细节"
+  "attributes": {"color": "color name", "style": "e.g. casual/formal/athletic", "season": "season it suits", "pattern": "e.g. solid/striped/plaid"},
+  "description": "one sentence describing the item, including color, fit, and material details"
 }
 """
 

@@ -19,6 +19,7 @@ class ClosetItem(Base):
     description   = Column(String, nullable=True)
     category      = Column(String, nullable=True)  # "top" | "bottom" | "outerwear" | "shoes"
     attributes    = Column(String, nullable=True)   # JSON string, e.g. {"color": "...", "style": "...", "season": "..."}
+    embedding     = Column(String, nullable=True)   # JSON string, float array from text-embedding-3-small (1536-dim)
     source_task_id = Column(String, nullable=True)
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
