@@ -18,12 +18,12 @@ CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
     )),
     reraise=True,
 )
-def chat_completion(messages, model="gpt-4o", max_tokens=500, json_mode=False):
+def chat_completion(messages, model="gpt-4o", max_tokens=500, json_mode=False, temperature=0.2):
     headers = {
         "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
+    payload = {"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": temperature}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
