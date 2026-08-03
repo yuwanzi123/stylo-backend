@@ -11,6 +11,11 @@ flatten_output/
 gpt4o_output/
 sd_output/
 outfit_output/
+poc_output/
 stylo.db
 May
 which
+uvicorn.log
+uvicorn.pid
+test_output.log
+test_response.json
