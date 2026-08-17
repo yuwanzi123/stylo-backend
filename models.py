@@ -48,5 +48,30 @@ class ChatMessage(Base):
     created_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class DailyConstraint(Base):
+    """Scene-specific constraint extracted from a single user message (e.g. "today
+    I'm playing golf, only want short sleeves"). Scoped to the day it was said —
+    callers filter by created_at to enforce same-day-only relevance; rows are never
+    deleted, old ones just stop being queried."""
+    __tablename__ = "daily_constraints"
+
+    id              = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id         = Column(String, nullable=False, index=True)
+    constraint_text = Column(String, nullable=False)
+    created_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class StandingPreference(Base):
+    """Durable preference extracted from a user message (e.g. "I don't wear high
+    heels"), independent of any date. Accumulates until explicitly removed via the
+    natural-language removal flow (stage 4)."""
+    __tablename__ = "standing_preferences"
+
+    id               = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id          = Column(String, nullable=False, index=True)
+    preference_text  = Column(String, nullable=False)
+    created_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
