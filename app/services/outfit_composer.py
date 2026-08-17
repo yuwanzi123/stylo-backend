@@ -6,7 +6,18 @@ from typing import List, Optional
 from PIL import Image
 from rembg import remove
 
+from app.services.llm_client import image_edit
+
 OUTPUT_DIR = "outfit_output"
+MANNEQUIN_SIZE = "1024x1536"
+MANNEQUIN_PROMPT = (
+    "Composite these garments onto a single department-store window mannequin, "
+    "standing pose, plain simple background, soft even studio lighting. "
+    "Layer the garments in natural wearing order: outerwear on the outside, "
+    "the top layer underneath it, bottoms aligned at the waistline. "
+    "The mannequin has no face and no facial features, no skin texture detail — "
+    "commercial mannequin material quality, photorealistic product photography."
+)
 REF_WIDTH = 340  # every garment is scaled to (roughly) this width so proportions line up
 SIDE_PADDING = 40
 BG_COLOR = (245, 245, 245, 255)
@@ -51,6 +62,45 @@ def _merge_row(paths: List[str], item_width: int) -> Optional[Image.Image]:
 
 
 def compose_outfit_image(
+    tops: Optional[List[str]] = None,
+    bottoms: Optional[List[str]] = None,
+    outerwear: Optional[List[str]] = None,
+    shoes: Optional[List[str]] = None,
+    output_dir: str = OUTPUT_DIR,
+) -> str:
+    """Composite the outfit onto a mannequin via gpt-image-1; fall back to the
+    layered-cutout method (no external call) if the API call fails, so a
+    transient outage doesn't block a recommendation."""
+    try:
+        return _compose_mannequin(tops, bottoms, outerwear, shoes, output_dir)
+    except Exception as e:
+        print(f"Mannequin compositing failed, falling back to layered cutout: {e}")
+        return _compose_layered(tops, bottoms, outerwear, shoes, output_dir)
+
+
+def _compose_mannequin(
+    tops: Optional[List[str]],
+    bottoms: Optional[List[str]],
+    outerwear: Optional[List[str]],
+    shoes: Optional[List[str]],
+    output_dir: str,
+) -> str:
+    image_paths = []
+    for group in (outerwear, tops, bottoms, shoes):
+        image_paths.extend(group or [])
+    if not image_paths:
+        raise ValueError("No items to compose")
+
+    image_bytes = image_edit(image_paths, MANNEQUIN_PROMPT, size=MANNEQUIN_SIZE)
+
+    os.makedirs(output_dir, exist_ok=True)
+    out_path = os.path.join(output_dir, f"{uuid.uuid4().hex}.png")
+    with open(out_path, "wb") as f:
+        f.write(image_bytes)
+    return out_path
+
+
+def _compose_layered(
     tops: Optional[List[str]] = None,
     bottoms: Optional[List[str]] = None,
     outerwear: Optional[List[str]] = None,
