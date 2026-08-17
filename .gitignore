@@ -13,9 +13,12 @@ sd_output/
 outfit_output/
 poc_output/
 stylo.db
-May
-which
 uvicorn.log
 uvicorn.pid
 test_output.log
 test_response.json
+notes/
+.env
+.env.*
+*.sqlite3
+.pytest_cache/
