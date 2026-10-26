@@ -70,7 +70,7 @@ def get_embedding(text: str, model="text-embedding-3-small") -> list[float]:
 )
 def image_edit(image_paths: list[str], prompt: str, size: str = "1024x1024") -> bytes:
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    data = {"model": "gpt-image-1", "prompt": prompt, "size": size, "n": 1}
+    data = {"model": "gpt-image-1-mini", "prompt": prompt, "size": size, "n": 1}
 
     with ExitStack() as stack:
         files = []
