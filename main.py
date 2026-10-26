@@ -411,6 +411,7 @@ def post_chat_message(body: ChatMessageIn):
         return JSONResponse({
             "message_id": assistant_msg.id,
             "type": assistant_msg.message_type,
+            "created_at": assistant_msg.created_at.isoformat() if assistant_msg.created_at else None,
             **outfit_data,
         })
     finally:
