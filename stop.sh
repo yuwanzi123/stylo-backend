@@ -2,7 +2,7 @@
 # Stylo Backend 停止脚本
 # 用法: ./stop.sh
 
-PROJECT_DIR="/home/zzz/stylo-backend"
+PROJECT_DIR="/home/zzz/stylo/stylo-backend"
 PID_FILE="$PROJECT_DIR/uvicorn.pid"
 
 cd "$PROJECT_DIR"

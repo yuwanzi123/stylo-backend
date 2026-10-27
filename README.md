@@ -11,7 +11,7 @@ AI 穿搭助手后端。上传衣物照片/视频 → 自动抠图分类入衣�
 ## 启动 / 停止
 
 ```bash
-cd /home/zzz/stylo-backend
+cd /home/zzz/stylo/stylo-backend
 ./start.sh   # 激活 conda stylo 环境 + 后台启动 uvicorn，已在跑会自动跳过
 ./stop.sh    # 停止
 ```

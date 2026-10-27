@@ -5,7 +5,7 @@
 
 set -e
 
-PROJECT_DIR="/home/zzz/stylo-backend"
+PROJECT_DIR="/home/zzz/stylo/stylo-backend"
 CONDA_ENV="stylo"
 HOST="0.0.0.0"
 PORT="8000"
